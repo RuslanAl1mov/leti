@@ -1,0 +1,200 @@
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Dict, Iterable, Optional
+
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+
+from tds_core import FlockData
+
+
+class FlockVisualizer:
+    """Строит и сохраняет графики для анализа динамики стаи."""
+
+    def __init__(self, output_dir: str | Path):
+        """Инициализирует визуализатор и подготавливает директорию вывода.
+
+        Args:
+            output_dir: Путь к папке, куда будут сохраняться изображения.
+        """
+        self.output_dir = Path(output_dir)
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+
+    def plot_trajectory(self, flock: FlockData) -> Path:
+        """Сохраняет траектории движения всех птиц в стае на плоскости.
+
+        Args:
+            flock: Данные одной стаи с координатами птиц во времени.
+
+        Returns:
+            Путь к сохраненному PNG-файлу с траекториями.
+        """
+        fig, ax = plt.subplots(figsize=(8, 8))
+        for bird_id, df in flock.birds.items():
+            ax.plot(df["x"], df["y"], linewidth=1.3, label=bird_id)
+            ax.scatter(df["x"].iloc[0], df["y"].iloc[0], s=18)
+        ax.set_title(f"Траектории: {flock.flock_id} ({flock.group})")
+        ax.set_xlabel("X (м)")
+        ax.set_ylabel("Y (м)")
+        ax.axis("equal")
+        ax.grid(alpha=0.3)
+        ax.legend(ncol=2, fontsize=8, frameon=False)
+        out = self.output_dir / f"{flock.flock_id}_trajectory.png"
+        fig.tight_layout()
+        fig.savefig(out, dpi=180)
+        plt.close(fig)
+        return out
+
+    def plot_coordinate_overview(self, flock: FlockData, max_birds: int = 6) -> Path:
+        """Строит обзор координат `x` и `y` для нескольких птиц во времени.
+
+        Args:
+            flock: Данные стаи с временным рядом координат.
+            max_birds: Максимальное число птиц, отображаемых на графике.
+
+        Returns:
+            Путь к сохраненному PNG-файлу с обзором координат.
+        """
+        bird_ids = flock.bird_ids[:max_birds]
+        fig, axes = plt.subplots(2, 1, figsize=(12, 7), sharex=True)
+        for bird_id in bird_ids:
+            df = flock.birds[bird_id]
+            axes[0].plot(flock.time_seconds, df["x"], label=bird_id, linewidth=1.0)
+            axes[1].plot(flock.time_seconds, df["y"], label=bird_id, linewidth=1.0)
+        axes[0].set_title(f"Обзор координат: {flock.flock_id}")
+        axes[0].set_ylabel("X (м)")
+        axes[1].set_ylabel("Y (м)")
+        axes[1].set_xlabel("Время (с)")
+        for ax in axes:
+            ax.grid(alpha=0.3)
+            ax.legend(ncol=3, fontsize=8, frameon=False)
+        out = self.output_dir / f"{flock.flock_id}_coordinates.png"
+        fig.tight_layout()
+        fig.savefig(out, dpi=180)
+        plt.close(fig)
+        return out
+
+    def plot_tds_heatmap(self, pair_df: pd.DataFrame, flock_id: str, mode: str, window_size: int) -> Optional[Path]:
+        """Строит тепловую карту попарных значений TDS для выбранной стаи.
+
+        Args:
+            pair_df: Таблица с попарными метриками TDS между птицами.
+            flock_id: Идентификатор стаи для фильтрации данных.
+            mode: Ось или режим анализа, например `x` или `y`.
+            window_size: Размер окна, для которого строится карта.
+
+        Returns:
+            Путь к сохраненному файлу, либо `None`, если подходящих данных нет.
+        """
+        subset = pair_df[
+            (pair_df["flock_id"] == flock_id)
+            & (pair_df["mode"] == mode)
+            & (pair_df["window_size"] == window_size)
+        ]
+        if subset.empty:
+            return None
+        birds = sorted(set(subset["bird_i"]) | set(subset["bird_j"]))
+        matrix = pd.DataFrame(np.nan, index=birds, columns=birds)
+        np.fill_diagonal(matrix.values, 1.0)
+        for _, row in subset.iterrows():
+            matrix.loc[row["bird_i"], row["bird_j"]] = row["tds"]
+            matrix.loc[row["bird_j"], row["bird_i"]] = row["tds"]
+
+        fig, ax = plt.subplots(figsize=(7, 6))
+        im = ax.imshow(matrix.values, vmin=0, vmax=1)
+        ax.set_xticks(np.arange(len(birds)))
+        ax.set_yticks(np.arange(len(birds)))
+        ax.set_xticklabels(birds)
+        ax.set_yticklabels(birds)
+        ax.set_title(f"Тепловая карта TDS: {flock_id}, режим={mode}, окно={window_size}")
+        for i in range(len(birds)):
+            for j in range(len(birds)):
+                value = matrix.values[i, j]
+                if not np.isnan(value):
+                    ax.text(j, i, f"{value:.2f}", ha="center", va="center", fontsize=7)
+        fig.colorbar(im, ax=ax, shrink=0.85, label="Значение TDS")
+        out = self.output_dir / f"{flock_id}_tds_{mode}_w{window_size}.png"
+        fig.tight_layout()
+        fig.savefig(out, dpi=180)
+        plt.close(fig)
+        return out
+
+    def plot_group_comparison(self, summary_df: pd.DataFrame, mode: str) -> Optional[Path]:
+        """Сравнивает средний TDS между группами для разных размеров окна.
+
+        Args:
+            summary_df: Сводная таблица по стаям и размерам окна.
+            mode: Ось или режим анализа, для которого строится сравнение.
+
+        Returns:
+            Путь к сохраненному файлу, либо `None`, если данных для режима нет.
+        """
+        subset = summary_df[summary_df["mode"] == mode].copy()
+        if subset.empty:
+            return None
+        subset = subset.sort_values(["window_size", "group", "flock_id"])
+        windows = sorted(subset["window_size"].unique())
+        groups = list(subset["group"].dropna().unique())
+
+        fig, ax = plt.subplots(figsize=(10, 6))
+        width = 0.35
+        x = np.arange(len(windows))
+        for idx, group in enumerate(groups):
+            gdf = subset[subset["group"] == group]
+            means = [gdf[gdf["window_size"] == w]["mean_tds"].mean() for w in windows]
+            stds = [gdf[gdf["window_size"] == w]["mean_tds"].std() for w in windows]
+            positions = x + (idx - (len(groups) - 1) / 2) * width
+            ax.bar(positions, means, width=width, yerr=stds, capsize=4, label=group)
+
+        ax.set_xticks(x)
+        ax.set_xticklabels([str(w) for w in windows])
+        ax.set_xlabel("Размер окна (отсчеты)")
+        ax.set_ylabel("Средний TDS стаи")
+        ax.set_title(f"Сравнение групп по размеру окна ({mode})")
+        ax.grid(axis="y", alpha=0.3)
+        ax.legend(frameon=False)
+        out = self.output_dir / f"group_comparison_{mode}.png"
+        fig.tight_layout()
+        fig.savefig(out, dpi=180)
+        plt.close(fig)
+        return out
+
+    def plot_lag_trace(self, lag_df: pd.DataFrame, flock_id: str, bird_i: str, bird_j: str, mode: str, window_size: int) -> Optional[Path]:
+        """Строит изменение лучшего лага и корреляции по окнам для пары птиц.
+
+        Args:
+            lag_df: Таблица с результатами оценки лагов по временным окнам.
+            flock_id: Идентификатор стаи.
+            bird_i: Идентификатор первой птицы в паре.
+            bird_j: Идентификатор второй птицы в паре.
+            mode: Ось или режим анализа.
+            window_size: Размер окна, для которого выбираются значения.
+
+        Returns:
+            Путь к сохраненному файлу, либо `None`, если подходящих данных нет.
+        """
+        subset = lag_df[
+            (lag_df["flock_id"] == flock_id)
+            & (lag_df["bird_i"] == bird_i)
+            & (lag_df["bird_j"] == bird_j)
+            & (lag_df["mode"] == mode)
+            & (lag_df["window_size"] == window_size)
+        ]
+        if subset.empty:
+            return None
+        fig, ax1 = plt.subplots(figsize=(10, 4.5))
+        ax1.plot(subset["window_index"], subset["best_lag"], marker="o", linewidth=1)
+        ax1.set_xlabel("Индекс окна")
+        ax1.set_ylabel("Лучший лаг (отсчеты)")
+        ax1.set_title(f"Стабильность лага: {flock_id} {bird_i}-{bird_j}, режим={mode}, окно={window_size}")
+        ax1.grid(alpha=0.3)
+        ax2 = ax1.twinx()
+        ax2.plot(subset["window_index"], subset["best_corr"], linestyle="--", alpha=0.7)
+        ax2.set_ylabel("Лучшая корреляция")
+        out = self.output_dir / f"{flock_id}_{bird_i}_{bird_j}_{mode}_w{window_size}_lag_trace.png"
+        fig.tight_layout()
+        fig.savefig(out, dpi=180)
+        plt.close(fig)
+        return out
