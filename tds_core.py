@@ -110,9 +110,9 @@ class PigeonCSVLoader:
     def _infer_group(flock_id: str) -> str:
         lower = flock_id.lower()
         if lower.startswith("ff"):
-            return "free_flight"
+            return "ff_локальный_полет"
         if lower.startswith("hf"):
-            return "homing_flight"
+            return "hf_маршрутный_полет"
         return "unknown"
 
 
@@ -158,27 +158,27 @@ class TDSAnalyzer:
             score, lag_series, corr_series = self.compute_tds(signals[bird_i].to_numpy(), signals[bird_j].to_numpy())
             records.append(
                 {
-                    "flock_id": flock.flock_id,
-                    "group": flock.group,
-                    "mode": mode,
-                    "window_size": self.params.window_size,
-                    "step_size": self.params.step_size,
-                    "max_lag": self.params.max_lag,
-                    "bird_i": bird_i,
-                    "bird_j": bird_j,
+                    "идентификатор_стаи": flock.flock_id,
+                    "тип_полета": flock.group,
+                    "тип_сигнала": mode,
+                    "размер_окна": self.params.window_size,
+                    "шаг_окна": self.params.step_size,
+                    "макс_задержка": self.params.max_lag,
+                    "птица_1": bird_i,
+                    "птица_2": bird_j,
                     "tds": score,
-                    "mean_abs_corr": float(np.nanmean(np.abs(corr_series))) if len(corr_series) else np.nan,
+                    "средняя_корреляция": float(np.nanmean(np.abs(corr_series))) if len(corr_series) else np.nan,
                 }
             )
             for window_idx, (lag, corr) in enumerate(zip(lag_series, corr_series)):
                 lag_records.append(
                     {
-                        "flock_id": flock.flock_id,
-                        "group": flock.group,
-                        "mode": mode,
-                        "window_size": self.params.window_size,
-                        "bird_i": bird_i,
-                        "bird_j": bird_j,
+                        "идентификатор_стаи": flock.flock_id,
+                        "тип_полета": flock.group,
+                        "тип_сигнала": mode,
+                        "размер_окна": self.params.window_size,
+                        "птица_1": bird_i,
+                        "птица_2": bird_j,
                         "window_index": window_idx,
                         "best_lag": lag,
                         "best_corr": corr,
@@ -297,13 +297,13 @@ def summarize_flocks(pairwise_results: pd.DataFrame) -> pd.DataFrame:
     if pairwise_results.empty:
         return pd.DataFrame()
     summary = (
-        pairwise_results.groupby(["flock_id", "group", "mode", "window_size", "step_size", "max_lag"], as_index=False)
+        pairwise_results.groupby(["идентификатор_стаи", "тип_полета", "тип_сигнала", "размер_окна", "шаг_окна", "макс_задержка"], as_index=False)
         .agg(
             mean_tds=("tds", "mean"),
             median_tds=("tds", "median"),
             std_tds=("tds", "std"),
             n_pairs=("tds", "count"),
-            mean_abs_corr=("mean_abs_corr", "mean"),
+            mean_abs_corr=("средняя_корреляция", "mean"),
         )
     )
-    return summary.sort_values(["group", "mode", "window_size", "flock_id"]).reset_index(drop=True)
+    return summary.sort_values(["тип_полета", "тип_сигнала", "размер_окна", "идентификатор_стаи"]).reset_index(drop=True)

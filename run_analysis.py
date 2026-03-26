@@ -62,7 +62,7 @@ def main() -> None:
         visualizer.plot_coordinate_overview(flock)
 
     # heatmaps for the middle window size for a compact default report
-    heatmap_window = 180
+    heatmap_window = 120
     for flock_id in flocks:
         for mode in modes:
             visualizer.plot_tds_heatmap(
@@ -73,17 +73,17 @@ def main() -> None:
         visualizer.plot_group_comparison(summary_df, mode=mode)
 
     # representative lag traces: highest-TDS pair for each flock for the middle window
-    rep = pairwise_df[pairwise_df["window_size"] == heatmap_window].sort_values(
+    rep = pairwise_df[pairwise_df["размер_окна"] == heatmap_window].sort_values(
         "tds", ascending=False
     )
-    for flock_id, group_df in rep.groupby("flock_id"):
+    for flock_id, group_df in rep.groupby("идентификатор_стаи"):
         row = group_df.iloc[0]
         visualizer.plot_lag_trace(
             lag_df,
             flock_id=flock_id,
-            bird_i=row["bird_i"],
-            bird_j=row["bird_j"],
-            mode=row["mode"],
+            bird_i=row["птица_1"],
+            bird_j=row["птица_2"],
+            mode=row["тип_сигнала"],
             window_size=heatmap_window,
         )
 
