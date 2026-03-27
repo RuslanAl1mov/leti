@@ -89,18 +89,18 @@ class FlockVisualizer:
             Путь к сохраненному файлу, либо `None`, если подходящих данных нет.
         """
         subset = pair_df[
-            (pair_df["идентификатор_стаи"] == flock_id)
-            & (pair_df["тип_сигнала"] == mode)
-            & (pair_df["размер_окна"] == window_size)
+            (pair_df["id"] == flock_id)
+            & (pair_df["coord"] == mode)
+            & (pair_df["window"] == window_size)
         ]
         if subset.empty:
             return None
-        birds = sorted(set(subset["птица_1"]) | set(subset["птица_2"]))
+        birds = sorted(set(subset["bird1"]) | set(subset["bird2"]))
         matrix = pd.DataFrame(np.nan, index=birds, columns=birds)
         np.fill_diagonal(matrix.values, 1.0)
         for _, row in subset.iterrows():
-            matrix.loc[row["птица_1"], row["птица_2"]] = row["tds"]
-            matrix.loc[row["птица_2"], row["птица_1"]] = row["tds"]
+            matrix.loc[row["bird1"], row["bird2"]] = row["tds"]
+            matrix.loc[row["bird2"], row["bird1"]] = row["tds"]
 
         fig, ax = plt.subplots(figsize=(7, 6))
         im = ax.imshow(matrix.values, vmin=0, vmax=1)
@@ -131,20 +131,20 @@ class FlockVisualizer:
         Returns:
             Путь к сохраненному файлу, либо `None`, если данных для режима нет.
         """
-        subset = summary_df[summary_df["тип_сигнала"] == mode].copy()
+        subset = summary_df[summary_df["coord"] == mode].copy()
         if subset.empty:
             return None
-        subset = subset.sort_values(["размер_окна", "тип_полета", "идентификатор_стаи"])
-        windows = sorted(subset["размер_окна"].unique())
-        groups = list(subset["тип_полета"].dropna().unique())
+        subset = subset.sort_values(["window", "type", "id"])
+        windows = sorted(subset["window"].unique())
+        groups = list(subset["type"].dropna().unique())
 
         fig, ax = plt.subplots(figsize=(10, 6))
         width = 0.35
         x = np.arange(len(windows))
         for idx, group in enumerate(groups):
-            gdf = subset[subset["тип_полета"] == group]
-            means = [gdf[gdf["размер_окна"] == w]["mean_tds"].mean() for w in windows]
-            stds = [gdf[gdf["размер_окна"] == w]["mean_tds"].std() for w in windows]
+            gdf = subset[subset["type"] == group]
+            means = [gdf[gdf["window"] == w]["mean_tds"].mean() for w in windows]
+            stds = [gdf[gdf["window"] == w]["mean_tds"].std() for w in windows]
             positions = x + (idx - (len(groups) - 1) / 2) * width
             ax.bar(positions, means, width=width, yerr=stds, capsize=4, label=group)
 
@@ -176,11 +176,11 @@ class FlockVisualizer:
             Путь к сохраненному файлу, либо `None`, если подходящих данных нет.
         """
         subset = lag_df[
-            (lag_df["идентификатор_стаи"] == flock_id)
-            & (lag_df["птица_1"] == bird_i)
-            & (lag_df["птица_2"] == bird_j)
-            & (lag_df["тип_сигнала"] == mode)
-            & (lag_df["размер_окна"] == window_size)
+            (lag_df["id"] == flock_id)
+            & (lag_df["bird1"] == bird_i)
+            & (lag_df["bird2"] == bird_j)
+            & (lag_df["coord"] == mode)
+            & (lag_df["window"] == window_size)
         ]
         if subset.empty:
             return None
