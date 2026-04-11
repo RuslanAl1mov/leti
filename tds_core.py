@@ -8,6 +8,7 @@ from typing import Dict, Iterable, List, Literal, Optional, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
+from scipy.signal import hilbert
 
 
 SignalMode = Literal["x", "y", "dx", "dy"]
@@ -270,27 +271,129 @@ class TDSAnalyzer:
         return float(stable_mask.mean())
 
 
+class PhaseSyncAnalyzer:
+    def __init__(self, params: TDSParams):
+        self.params = params
+
+    def analyze_flock(self, flock: FlockData, mode: SignalMode) -> Tuple[pd.DataFrame, pd.DataFrame]:
+        signals = self._build_signal_table(flock, mode)
+        records: List[dict] = []
+        trace_records: List[dict] = []
+
+        for bird_i, bird_j in combinations(signals.columns, 2):
+            mean_phase_sync, phase_sync_series = self.compute_phase_sync(
+                signals[bird_i].to_numpy(), signals[bird_j].to_numpy()
+            )
+            records.append(
+                {
+                    "id": flock.flock_id,
+                    "type": flock.group,
+                    "coord": mode,
+                    "window": self.params.window_size,
+                    "step": self.params.step_size,
+                    "bird1": bird_i,
+                    "bird2": bird_j,
+                    "phase_sync": (
+                        round(float(mean_phase_sync), 4)
+                        if not np.isnan(mean_phase_sync)
+                        else np.nan
+                    ),
+                }
+            )
+            for window_idx, phase_sync in enumerate(phase_sync_series):
+                trace_records.append(
+                    {
+                        "id": flock.flock_id,
+                        "type": flock.group,
+                        "coord": mode,
+                        "window": self.params.window_size,
+                        "bird1": bird_i,
+                        "bird2": bird_j,
+                        "window_index": window_idx,
+                        "phase_sync": (
+                            round(float(phase_sync), 4)
+                            if not np.isnan(phase_sync)
+                            else np.nan
+                        ),
+                    }
+                )
+
+        return pd.DataFrame(records), pd.DataFrame(trace_records)
+
+    def _build_signal_table(self, flock: FlockData, mode: SignalMode) -> pd.DataFrame:
+        builder = SignalBuilder()
+        signals = {bird_id: builder.build_signal(df, mode) for bird_id, df in flock.birds.items()}
+        signal_df = pd.DataFrame(signals)
+        signal_df = signal_df.interpolate(limit_direction="both").dropna(axis=1, how="all")
+        return signal_df
+
+    def compute_phase_sync(self, x: np.ndarray, y: np.ndarray) -> Tuple[float, np.ndarray]:
+        p = self.params
+        n = min(len(x), len(y))
+        x = np.asarray(x[:n], dtype=float)
+        y = np.asarray(y[:n], dtype=float)
+        if n < p.window_size:
+            return np.nan, np.array([])
+
+        phase_sync_values: List[float] = []
+        starts = range(0, n - p.window_size + 1, p.step_size)
+        for start in starts:
+            end = start + p.window_size
+            phase_sync_values.append(self._window_phase_sync(x[start:end], y[start:end]))
+
+        phase_sync_arr = np.asarray(phase_sync_values, dtype=float)
+        if len(phase_sync_arr) == 0 or np.all(np.isnan(phase_sync_arr)):
+            return np.nan, phase_sync_arr
+        return float(np.nanmean(phase_sync_arr)), phase_sync_arr
+
+    @staticmethod
+    def _window_phase_sync(xw: np.ndarray, yw: np.ndarray) -> float:
+        xw = np.asarray(xw, dtype=float)
+        yw = np.asarray(yw, dtype=float)
+        if len(xw) < 3 or np.std(xw) < 1e-12 or np.std(yw) < 1e-12:
+            return np.nan
+
+        phase_x = np.angle(hilbert(xw - np.mean(xw)))
+        phase_y = np.angle(hilbert(yw - np.mean(yw)))
+        phase_diff = phase_x - phase_y
+        return float(np.abs(np.mean(np.exp(1j * phase_diff))))
+
+
 class BatchPipeline:
     def __init__(self, params_grid: Sequence[TDSParams]):
         self.params_grid = list(params_grid)
         self.loader = PigeonCSVLoader()
 
-    def run(self, csv_files: Sequence[str | Path], modes: Sequence[SignalMode]) -> Tuple[pd.DataFrame, pd.DataFrame, Dict[str, FlockData]]:
+    def run(
+        self, csv_files: Sequence[str | Path], modes: Sequence[SignalMode]
+    ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, Dict[str, FlockData]]:
         flocks = {Path(path).stem: self.loader.load(path) for path in csv_files}
         pair_frames: List[pd.DataFrame] = []
         lag_frames: List[pd.DataFrame] = []
+        phase_frames: List[pd.DataFrame] = []
+        phase_trace_frames: List[pd.DataFrame] = []
 
         for params in self.params_grid:
             analyzer = TDSAnalyzer(params)
+            phase_analyzer = PhaseSyncAnalyzer(params)
             for flock in flocks.values():
                 for mode in modes:
                     pair_df, lag_df = analyzer.analyze_flock(flock, mode)
+                    phase_df, phase_trace_df = phase_analyzer.analyze_flock(flock, mode)
                     pair_frames.append(pair_df)
                     lag_frames.append(lag_df)
+                    phase_frames.append(phase_df)
+                    phase_trace_frames.append(phase_trace_df)
 
         pairwise_results = pd.concat(pair_frames, ignore_index=True) if pair_frames else pd.DataFrame()
         lag_results = pd.concat(lag_frames, ignore_index=True) if lag_frames else pd.DataFrame()
-        return pairwise_results, lag_results, flocks
+        phase_results = pd.concat(phase_frames, ignore_index=True) if phase_frames else pd.DataFrame()
+        phase_trace_results = (
+            pd.concat(phase_trace_frames, ignore_index=True)
+            if phase_trace_frames
+            else pd.DataFrame()
+        )
+        return pairwise_results, lag_results, phase_results, phase_trace_results, flocks
 
 
 def summarize_flocks(pairwise_results: pd.DataFrame) -> pd.DataFrame:
@@ -304,6 +407,21 @@ def summarize_flocks(pairwise_results: pd.DataFrame) -> pd.DataFrame:
             std_tds=("tds", "std"),
             n_pairs=("tds", "count"),
             mean_R=("R", "mean"),
+        )
+    )
+    return summary.sort_values(["type", "coord", "window", "id"]).reset_index(drop=True)
+
+
+def summarize_phase(phase_results: pd.DataFrame) -> pd.DataFrame:
+    if phase_results.empty:
+        return pd.DataFrame()
+    summary = (
+        phase_results.groupby(["id", "type", "coord", "window", "step"], as_index=False)
+        .agg(
+            mean_phase_sync=("phase_sync", "mean"),
+            median_phase_sync=("phase_sync", "median"),
+            std_phase_sync=("phase_sync", "std"),
+            n_pairs=("phase_sync", "count"),
         )
     )
     return summary.sort_values(["type", "coord", "window", "id"]).reset_index(drop=True)

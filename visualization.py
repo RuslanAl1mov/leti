@@ -47,6 +47,21 @@ class FlockVisualizer:
         plt.close(fig)
         return out
 
+    @staticmethod
+    def _pair_metric_boxplot_data(
+        pair_df: pd.DataFrame, value_col: str, scale: float = 1.0
+    ) -> tuple[list[np.ndarray], list[str]]:
+        birds = sorted(set(pair_df["bird1"]) | set(pair_df["bird2"]))
+        data: list[np.ndarray] = []
+        labels: list[str] = []
+        for bird in birds:
+            mask = (pair_df["bird1"] == bird) | (pair_df["bird2"] == bird)
+            values = pair_df.loc[mask, value_col].dropna().to_numpy(dtype=float) / scale
+            if len(values):
+                data.append(values)
+                labels.append(bird)
+        return data, labels
+
     def plot_coordinate_overview(self, flock: FlockData, max_birds: int = 6) -> Path:
         """Строит обзор координат `x` и `y` для нескольких птиц во времени.
 
@@ -116,6 +131,45 @@ class FlockVisualizer:
                     ax.text(j, i, f"{value:.2f}", ha="center", va="center", fontsize=7)
         fig.colorbar(im, ax=ax, shrink=0.85, label="Значение TDS")
         out = self.output_dir / f"{flock_id}_tds_{mode}_w{window_size}.png"
+        fig.tight_layout()
+        fig.savefig(out, dpi=180)
+        plt.close(fig)
+        return out
+
+    def plot_phase_heatmap(
+        self, phase_df: pd.DataFrame, flock_id: str, mode: str, window_size: int
+    ) -> Optional[Path]:
+        """Строит тепловую карту коэффициента фазовой синхронизации."""
+        subset = phase_df[
+            (phase_df["id"] == flock_id)
+            & (phase_df["coord"] == mode)
+            & (phase_df["window"] == window_size)
+        ]
+        if subset.empty:
+            return None
+        birds = sorted(set(subset["bird1"]) | set(subset["bird2"]))
+        matrix = pd.DataFrame(np.nan, index=birds, columns=birds)
+        np.fill_diagonal(matrix.values, 1.0)
+        for _, row in subset.iterrows():
+            matrix.loc[row["bird1"], row["bird2"]] = row["phase_sync"]
+            matrix.loc[row["bird2"], row["bird1"]] = row["phase_sync"]
+
+        fig, ax = plt.subplots(figsize=(7, 6))
+        im = ax.imshow(matrix.values, vmin=0, vmax=1)
+        ax.set_xticks(np.arange(len(birds)))
+        ax.set_yticks(np.arange(len(birds)))
+        ax.set_xticklabels(birds)
+        ax.set_yticklabels(birds)
+        ax.set_title(
+            f"Тепловая карта коэффициента фазовой синхронизации: {flock_id}, режим={mode}, окно={window_size}"
+        )
+        for i in range(len(birds)):
+            for j in range(len(birds)):
+                value = matrix.values[i, j]
+                if not np.isnan(value):
+                    ax.text(j, i, f"{value:.2f}", ha="center", va="center", fontsize=7)
+        fig.colorbar(im, ax=ax, shrink=0.85, label="Коэффициент фазовой синхронизации")
+        out = self.output_dir / f"{flock_id}_phase_{mode}_w{window_size}.png"
         fig.tight_layout()
         fig.savefig(out, dpi=180)
         plt.close(fig)
@@ -195,6 +249,169 @@ class FlockVisualizer:
         ax2.plot(subset["window_index"], subset["best_corr"], linestyle="--", alpha=0.7)
         ax2.set_ylabel("Лучшая корреляция")
         out = self.output_dir / f"{flock_id}_{bird_i}_{bird_j}_{mode}_w{window_size}_lag_trace.png"
+        fig.tight_layout()
+        fig.savefig(out, dpi=180)
+        plt.close(fig)
+        return out
+
+    def plot_phase_trace(
+        self,
+        phase_trace_df: pd.DataFrame,
+        flock_id: str,
+        bird_i: str,
+        bird_j: str,
+        mode: str,
+        window_size: int,
+    ) -> Optional[Path]:
+        """Строит изменение коэффициента фазовой синхронизации по окнам для пары птиц."""
+        subset = phase_trace_df[
+            (phase_trace_df["id"] == flock_id)
+            & (phase_trace_df["bird1"] == bird_i)
+            & (phase_trace_df["bird2"] == bird_j)
+            & (phase_trace_df["coord"] == mode)
+            & (phase_trace_df["window"] == window_size)
+        ]
+        if subset.empty:
+            return None
+        subset = subset.sort_values("window_index")
+        fig, ax = plt.subplots(figsize=(10, 4.5))
+        ax.plot(subset["window_index"], subset["phase_sync"], marker="o", linewidth=1)
+        ax.set_xlabel("Индекс окна")
+        ax.set_ylabel("Коэффициент фазовой синхронизации")
+        ax.set_ylim(0, 1)
+        ax.set_title(
+            f"Коэффициент фазовой синхронизации: {flock_id} {bird_i}-{bird_j}, режим={mode}, окно={window_size}"
+        )
+        ax.grid(alpha=0.3)
+        out = self.output_dir / f"{flock_id}_{bird_i}_{bird_j}_{mode}_w{window_size}_phase_trace.png"
+        fig.tight_layout()
+        fig.savefig(out, dpi=180)
+        plt.close(fig)
+        return out
+
+    def plot_tds_boxplot(
+        self, pair_df: pd.DataFrame, flock_id: str, mode: str, window_size: int
+    ) -> Optional[Path]:
+        """Строит boxplot TDS по птицам: связь каждой птицы со всеми остальными."""
+        subset = pair_df[
+            (pair_df["id"] == flock_id)
+            & (pair_df["coord"] == mode)
+            & (pair_df["window"] == window_size)
+        ].copy()
+        if subset.empty:
+            return None
+
+        data, labels = self._pair_metric_boxplot_data(subset, value_col="tds", scale=100.0)
+        if not data:
+            return None
+
+        fig, ax = plt.subplots(figsize=(max(7, 0.9 * len(labels) + 2), 5))
+        ax.boxplot(
+            data,
+            patch_artist=True,
+            boxprops={"facecolor": "#4C78A8", "alpha": 0.7},
+            medianprops={"color": "#F58518", "linewidth": 2},
+        )
+        ax.set_xticks(np.arange(1, len(labels) + 1))
+        ax.set_xticklabels(labels)
+        ax.set_ylim(0, 1)
+        ax.set_ylabel("Значение TDS")
+        ax.set_xlabel("Птица")
+        ax.set_title(
+            f"Боксплот TDS по птицам: {flock_id}, режим={mode}, окно={window_size}"
+        )
+        ax.grid(axis="y", alpha=0.3)
+
+        out = self.output_dir / f"{flock_id}_tds_{mode}_w{window_size}_boxplot.png"
+        fig.tight_layout()
+        fig.savefig(out, dpi=180)
+        plt.close(fig)
+        return out
+
+    def plot_phase_boxplot(
+        self, phase_df: pd.DataFrame, flock_id: str, mode: str, window_size: int
+    ) -> Optional[Path]:
+        """Строит boxplot фазовой синхронизации по птицам."""
+        subset = phase_df[
+            (phase_df["id"] == flock_id)
+            & (phase_df["coord"] == mode)
+            & (phase_df["window"] == window_size)
+        ].copy()
+        if subset.empty:
+            return None
+
+        data, labels = self._pair_metric_boxplot_data(
+            subset, value_col="phase_sync", scale=1.0
+        )
+        if not data:
+            return None
+
+        fig, ax = plt.subplots(figsize=(max(7, 0.9 * len(labels) + 2), 5))
+        ax.boxplot(
+            data,
+            patch_artist=True,
+            boxprops={"facecolor": "#54A24B", "alpha": 0.7},
+            medianprops={"color": "#E45756", "linewidth": 2},
+        )
+        ax.set_xticks(np.arange(1, len(labels) + 1))
+        ax.set_xticklabels(labels)
+        ax.set_ylim(0, 1)
+        ax.set_ylabel("Коэффициент фазовой синхронизации")
+        ax.set_xlabel("Птица")
+        ax.set_title(
+            f"Боксплот фазовой синхронизации по птицам: {flock_id}, режим={mode}, окно={window_size}"
+        )
+        ax.grid(axis="y", alpha=0.3)
+
+        out = self.output_dir / f"{flock_id}_phase_{mode}_w{window_size}_boxplot.png"
+        fig.tight_layout()
+        fig.savefig(out, dpi=180)
+        plt.close(fig)
+        return out
+
+    def plot_lag_std_boxplot(
+        self, lag_df: pd.DataFrame, flock_id: str, mode: str, window_size: int
+    ) -> Optional[Path]:
+        """Строит boxplot СКО лагов по птицам."""
+        subset = lag_df[
+            (lag_df["id"] == flock_id)
+            & (lag_df["coord"] == mode)
+            & (lag_df["window"] == window_size)
+        ].copy()
+        if subset.empty:
+            return None
+
+        lag_std = (
+            subset.groupby(["bird1", "bird2"], as_index=False)
+            .agg(lag_std=("best_lag", lambda values: float(np.std(values, ddof=0))))
+            .sort_values("lag_std")
+        )
+        if lag_std.empty:
+            return None
+
+        data, labels = self._pair_metric_boxplot_data(
+            lag_std, value_col="lag_std", scale=1.0
+        )
+        if not data:
+            return None
+
+        fig, ax = plt.subplots(figsize=(max(7, 0.9 * len(labels) + 2), 5))
+        ax.boxplot(
+            data,
+            patch_artist=True,
+            boxprops={"facecolor": "#B279A2", "alpha": 0.7},
+            medianprops={"color": "#FF9DA6", "linewidth": 2},
+        )
+        ax.set_xticks(np.arange(1, len(labels) + 1))
+        ax.set_xticklabels(labels)
+        ax.set_ylabel("СКО лучшего лага")
+        ax.set_xlabel("Птица")
+        ax.set_title(
+            f"Боксплот СКО лагов по птицам: {flock_id}, режим={mode}, окно={window_size}"
+        )
+        ax.grid(axis="y", alpha=0.3)
+
+        out = self.output_dir / f"{flock_id}_lag_std_{mode}_w{window_size}_boxplot.png"
         fig.tight_layout()
         fig.savefig(out, dpi=180)
         plt.close(fig)

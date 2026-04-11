@@ -6,7 +6,7 @@ import sys
 
 import pandas as pd
 
-from tds_core import BatchPipeline, TDSParams, summarize_flocks
+from tds_core import BatchPipeline, TDSParams, summarize_flocks, summarize_phase
 from visualization import FlockVisualizer
 
 
@@ -49,12 +49,18 @@ def main() -> None:
     modes = ["x", "y"]
 
     pipeline = BatchPipeline(params_grid=params_grid)
-    pairwise_df, lag_df, flocks = pipeline.run(csv_files=csv_files, modes=modes)
+    pairwise_df, lag_df, phase_df, phase_trace_df, flocks = pipeline.run(
+        csv_files=csv_files, modes=modes
+    )
     summary_df = summarize_flocks(pairwise_df)
+    phase_summary_df = summarize_phase(phase_df)
 
     pairwise_df.to_csv(output_dir / "pairwise_tds_results.csv", index=False)
     lag_df.to_csv(output_dir / "lag_trace_results.csv", index=False)
     summary_df.to_csv(output_dir / "flock_summary.csv", index=False)
+    phase_df.to_csv(output_dir / "pairwise_phase_results.csv", index=False)
+    phase_trace_df.to_csv(output_dir / "phase_trace_results.csv", index=False)
+    phase_summary_df.to_csv(output_dir / "phase_summary.csv", index=False)
 
     visualizer = FlockVisualizer(output_dir)
     for flock in flocks.values():
@@ -67,6 +73,9 @@ def main() -> None:
         for mode in modes:
             visualizer.plot_tds_heatmap(
                 pairwise_df, flock_id=flock_id, mode=mode, window_size=heatmap_window
+            )
+            visualizer.plot_phase_heatmap(
+                phase_df, flock_id=flock_id, mode=mode, window_size=heatmap_window
             )
 
     for mode in modes:
@@ -83,6 +92,32 @@ def main() -> None:
             flock_id=flock_id,
             bird_i=row["bird1"],
             bird_j=row["bird2"],
+            mode=row["coord"],
+            window_size=heatmap_window,
+        )
+        visualizer.plot_phase_trace(
+            phase_trace_df,
+            flock_id=flock_id,
+            bird_i=row["bird1"],
+            bird_j=row["bird2"],
+            mode=row["coord"],
+            window_size=heatmap_window,
+        )
+        visualizer.plot_tds_boxplot(
+            pairwise_df,
+            flock_id=flock_id,
+            mode=row["coord"],
+            window_size=heatmap_window,
+        )
+        visualizer.plot_phase_boxplot(
+            phase_df,
+            flock_id=flock_id,
+            mode=row["coord"],
+            window_size=heatmap_window,
+        )
+        visualizer.plot_lag_std_boxplot(
+            lag_df,
+            flock_id=flock_id,
             mode=row["coord"],
             window_size=heatmap_window,
         )
