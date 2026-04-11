@@ -99,8 +99,8 @@ class FlockVisualizer:
         matrix = pd.DataFrame(np.nan, index=birds, columns=birds)
         np.fill_diagonal(matrix.values, 1.0)
         for _, row in subset.iterrows():
-            matrix.loc[row["bird1"], row["bird2"]] = row["tds"]
-            matrix.loc[row["bird2"], row["bird1"]] = row["tds"]
+            matrix.loc[row["bird1"], row["bird2"]] = row["tds"] / 100.0
+            matrix.loc[row["bird2"], row["bird1"]] = row["tds"] / 100.0
 
         fig, ax = plt.subplots(figsize=(7, 6))
         im = ax.imshow(matrix.values, vmin=0, vmax=1)
@@ -184,6 +184,7 @@ class FlockVisualizer:
         ]
         if subset.empty:
             return None
+        subset = subset.sort_values("window_index")
         fig, ax1 = plt.subplots(figsize=(10, 4.5))
         ax1.plot(subset["window_index"], subset["best_lag"], marker="o", linewidth=1)
         ax1.set_xlabel("Индекс окна")
@@ -194,6 +195,62 @@ class FlockVisualizer:
         ax2.plot(subset["window_index"], subset["best_corr"], linestyle="--", alpha=0.7)
         ax2.set_ylabel("Лучшая корреляция")
         out = self.output_dir / f"{flock_id}_{bird_i}_{bird_j}_{mode}_w{window_size}_lag_trace.png"
+        fig.tight_layout()
+        fig.savefig(out, dpi=180)
+        plt.close(fig)
+        return out
+
+    def plot_lag_std_histogram(
+        self,
+        lag_df: pd.DataFrame,
+        flock_id: str,
+        mode: str,
+        window_size: int,
+        bins: int = 20,
+    ) -> Optional[Path]:
+        """Строит гистограмму СКО лагов по всем парам птиц для выбранной стаи.
+
+        Args:
+            lag_df: Таблица с результатами оценки лагов по временным окнам.
+            flock_id: Идентификатор стаи.
+            mode: Ось или режим анализа.
+            window_size: Размер окна, для которого строится гистограмма.
+            bins: Число карманов гистограммы.
+
+        Returns:
+            Путь к сохраненному файлу, либо `None`, если подходящих данных нет.
+        """
+        subset = lag_df[
+            (lag_df["id"] == flock_id)
+            & (lag_df["coord"] == mode)
+            & (lag_df["window"] == window_size)
+        ].copy()
+        if subset.empty:
+            return None
+
+        lag_std = (
+            subset.groupby(["bird1", "bird2"], as_index=False)
+            .agg(lag_std=("best_lag", lambda values: float(np.std(values, ddof=0))))
+            .sort_values("lag_std")
+        )
+        if lag_std.empty:
+            return None
+
+        values = lag_std["lag_std"].to_numpy(dtype=float)
+
+        fig, ax = plt.subplots(figsize=(9, 4.5))
+        ax.hist(values, bins=bins, color="#4C78A8", edgecolor="white", alpha=0.9)
+        ax.axvline(np.median(values), color="#F58518", linestyle="--", linewidth=1.5, label=f"Медиана = {np.median(values):.2f}")
+        ax.axvline(np.mean(values), color="#54A24B", linestyle="-.", linewidth=1.5, label=f"Среднее = {np.mean(values):.2f}")
+        ax.set_xlabel("СКО лучшего лага по окнам")
+        ax.set_ylabel("Число пар")
+        ax.set_title(
+            f"Гистограмма СКО лагов: {flock_id}, режим={mode}, окно={window_size}, карманы={bins}"
+        )
+        ax.grid(axis="y", alpha=0.3)
+        ax.legend(frameon=False)
+
+        out = self.output_dir / f"{flock_id}_{mode}_w{window_size}_lag_std_hist_b{bins}.png"
         fig.tight_layout()
         fig.savefig(out, dpi=180)
         plt.close(fig)

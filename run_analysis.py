@@ -86,6 +86,27 @@ def main() -> None:
             mode=row["coord"],
             window_size=heatmap_window,
         )
+        visualizer.plot_lag_std_histogram(
+            lag_df,
+            flock_id=flock_id,
+            mode=row["coord"],
+            window_size=heatmap_window,
+            bins=15,
+        )
+        visualizer.plot_lag_std_histogram(
+            lag_df,
+            flock_id=flock_id,
+            mode=row["coord"],
+            window_size=heatmap_window,
+            bins=18,
+        )
+        visualizer.plot_lag_std_histogram(
+            lag_df,
+            flock_id=flock_id,
+            mode=row["coord"],
+            window_size=heatmap_window,
+            bins=20,
+        )
 
     print(f"Processed {len(flocks)} flocks")
     print(f"Results saved to: {output_dir.resolve()}")
