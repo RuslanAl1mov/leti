@@ -22,6 +22,16 @@ class FlockVisualizer:
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
+    @staticmethod
+    def _flight_type_label(flock: FlockData) -> str:
+        """Возвращает русскую подпись типа полета для заголовков графиков."""
+        flock_id = flock.flock_id.lower()
+        if flock_id.startswith("ff") or flock.group == "1":
+            return "локальный полет"
+        if flock_id.startswith("hf") or flock.group == "2":
+            return "маршрутный полет"
+        return "неизвестный тип полета"
+
     def plot_trajectory(self, flock: FlockData) -> Path:
         """Сохраняет траектории движения всех птиц в стае на плоскости.
 
@@ -35,7 +45,9 @@ class FlockVisualizer:
         for bird_id, df in flock.birds.items():
             ax.plot(df["x"], df["y"], linewidth=1.3, label=bird_id)
             ax.scatter(df["x"].iloc[0], df["y"].iloc[0], s=18)
-        ax.set_title(f"Траектории: {flock.flock_id} ({flock.group})")
+        ax.set_title(
+            f"Траектории: {flock.flock_id} ({self._flight_type_label(flock)})"
+        )
         ax.set_xlabel("X (м)")
         ax.set_ylabel("Y (м)")
         ax.axis("equal")

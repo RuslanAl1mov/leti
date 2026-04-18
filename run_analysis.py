@@ -68,7 +68,7 @@ def main() -> None:
         visualizer.plot_coordinate_overview(flock)
 
     # heatmaps for the middle window size for a compact default report
-    heatmap_window = 120
+    heatmap_window = 240
     for flock_id in flocks:
         for mode in modes:
             visualizer.plot_tds_heatmap(
