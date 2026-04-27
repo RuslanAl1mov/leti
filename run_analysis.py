@@ -68,7 +68,7 @@ def main() -> None:
         visualizer.plot_coordinate_overview(flock)
 
     # heatmaps for the middle window size for a compact default report
-    heatmap_window = 240
+    heatmap_window = 60
     for flock_id in flocks:
         for mode in modes:
             visualizer.plot_tds_heatmap(
@@ -81,67 +81,72 @@ def main() -> None:
     for mode in modes:
         visualizer.plot_group_comparison(summary_df, mode=mode)
 
-    # representative lag traces: highest-TDS pair for each flock for the middle window
+    # representative traces and distributions for each flock and each coordinate mode
     rep = pairwise_df[pairwise_df["window"] == heatmap_window].sort_values(
         "tds", ascending=False
     )
-    for flock_id, group_df in rep.groupby("id"):
-        row = group_df.iloc[0]
-        visualizer.plot_lag_trace(
-            lag_df,
-            flock_id=flock_id,
-            bird_i=row["bird1"],
-            bird_j=row["bird2"],
-            mode=row["coord"],
-            window_size=heatmap_window,
-        )
-        visualizer.plot_phase_trace(
-            phase_trace_df,
-            flock_id=flock_id,
-            bird_i=row["bird1"],
-            bird_j=row["bird2"],
-            mode=row["coord"],
-            window_size=heatmap_window,
-        )
-        visualizer.plot_tds_boxplot(
-            pairwise_df,
-            flock_id=flock_id,
-            mode=row["coord"],
-            window_size=heatmap_window,
-        )
-        visualizer.plot_phase_boxplot(
-            phase_df,
-            flock_id=flock_id,
-            mode=row["coord"],
-            window_size=heatmap_window,
-        )
-        visualizer.plot_lag_std_boxplot(
-            lag_df,
-            flock_id=flock_id,
-            mode=row["coord"],
-            window_size=heatmap_window,
-        )
-        visualizer.plot_lag_std_histogram(
-            lag_df,
-            flock_id=flock_id,
-            mode=row["coord"],
-            window_size=heatmap_window,
-            bins=15,
-        )
-        visualizer.plot_lag_std_histogram(
-            lag_df,
-            flock_id=flock_id,
-            mode=row["coord"],
-            window_size=heatmap_window,
-            bins=18,
-        )
-        visualizer.plot_lag_std_histogram(
-            lag_df,
-            flock_id=flock_id,
-            mode=row["coord"],
-            window_size=heatmap_window,
-            bins=20,
-        )
+    for flock_id, flock_df in rep.groupby("id"):
+        for mode in modes:
+            mode_df = flock_df[flock_df["coord"] == mode]
+            if mode_df.empty:
+                continue
+
+            row = mode_df.iloc[0]
+            visualizer.plot_lag_trace(
+                lag_df,
+                flock_id=flock_id,
+                bird_i=row["bird1"],
+                bird_j=row["bird2"],
+                mode=mode,
+                window_size=heatmap_window,
+            )
+            visualizer.plot_phase_trace(
+                phase_trace_df,
+                flock_id=flock_id,
+                bird_i=row["bird1"],
+                bird_j=row["bird2"],
+                mode=mode,
+                window_size=heatmap_window,
+            )
+            visualizer.plot_tds_boxplot(
+                pairwise_df,
+                flock_id=flock_id,
+                mode=mode,
+                window_size=heatmap_window,
+            )
+            visualizer.plot_phase_boxplot(
+                phase_df,
+                flock_id=flock_id,
+                mode=mode,
+                window_size=heatmap_window,
+            )
+            visualizer.plot_lag_std_boxplot(
+                lag_df,
+                flock_id=flock_id,
+                mode=mode,
+                window_size=heatmap_window,
+            )
+            visualizer.plot_lag_std_histogram(
+                lag_df,
+                flock_id=flock_id,
+                mode=mode,
+                window_size=heatmap_window,
+                bins=15,
+            )
+            visualizer.plot_lag_std_histogram(
+                lag_df,
+                flock_id=flock_id,
+                mode=mode,
+                window_size=heatmap_window,
+                bins=18,
+            )
+            visualizer.plot_lag_std_histogram(
+                lag_df,
+                flock_id=flock_id,
+                mode=mode,
+                window_size=heatmap_window,
+                bins=20,
+            )
 
     print(f"Processed {len(flocks)} flocks")
     print(f"Results saved to: {output_dir.resolve()}")

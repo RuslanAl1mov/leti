@@ -8,7 +8,7 @@ from typing import Dict, Iterable, List, Literal, Optional, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
-from scipy.signal import hilbert
+from scipy.signal import correlation_lags, correlate, hilbert
 
 
 SignalMode = Literal["x", "y", "dx", "dy"]
@@ -21,6 +21,7 @@ class TDSParams:
     max_lag: int
     lag_tolerance: int = 1
     min_stable_windows: int = 4
+    stability_window_size: int = 5
     use_absolute_correlation: bool = True
 
 
@@ -223,20 +224,22 @@ class TDSAnalyzer:
         if np.std(xw) < 1e-12 or np.std(yw) < 1e-12:
             return 0, np.nan
 
-        xz = (xw - xw.mean()) / (xw.std() + 1e-12)
-        yz = (yw - yw.mean()) / (yw.std() + 1e-12)
-        full = np.correlate(xz, yz, mode="full") / len(xz)
-        center = len(xz) - 1
-        lags = np.arange(-self.params.max_lag, self.params.max_lag + 1)
-        valid_idx = center + lags
-        valid = (valid_idx >= 0) & (valid_idx < len(full))
+        xz = (xw - xw.mean()) / (xw.std(ddof=1) + 1e-12)
+        yz = (yw - yw.mean()) / (yw.std(ddof=1) + 1e-12)
+        full = correlate(xz, yz, mode="full")
+        lags = correlation_lags(len(xz), len(yz), mode="full")
+        valid = np.abs(lags) <= self.params.max_lag
         lags = lags[valid]
-        corr_vals = full[valid_idx[valid]]
+        corr_vals = full[valid]
         if len(corr_vals) == 0:
             return 0, np.nan
+
         scores = np.abs(corr_vals) if self.params.use_absolute_correlation else corr_vals
-        best_idx = int(np.nanargmax(scores))
-        return int(lags[best_idx]), float(corr_vals[best_idx])
+        candidate_idx = np.flatnonzero(scores == np.nanmax(scores))
+        best_idx = int(candidate_idx[np.argmin(np.abs(lags[candidate_idx]))])
+        best_lag = int(lags[best_idx])
+        xa, ya = self._align_lag(xw, yw, best_lag)
+        return best_lag, self._safe_corr(xa, ya)
 
     @staticmethod
     def _align_lag(x: np.ndarray, y: np.ndarray, lag: int) -> Tuple[np.ndarray, np.ndarray]:
@@ -253,22 +256,42 @@ class TDSAnalyzer:
         return float(np.corrcoef(x, y)[0, 1])
 
     def _lag_stability_score(self, lag_arr: np.ndarray) -> float:
-        if len(lag_arr) == 0:
+        stable_series = self._lag_stability_series(lag_arr)
+        if len(stable_series) == 0:
             return np.nan
+        return float(np.mean(stable_series))
 
-        stable_mask = np.zeros(len(lag_arr), dtype=bool)
-        min_run = self.params.min_stable_windows
-        tol = self.params.lag_tolerance
+    def _lag_stability_series(self, lag_arr: np.ndarray) -> np.ndarray:
+        lag_arr = np.asarray(lag_arr, dtype=float)
+        if len(lag_arr) == 0:
+            return np.array([], dtype=float)
+        if np.all(np.isnan(lag_arr)):
+            return np.zeros(len(lag_arr), dtype=float)
 
-        start = 0
-        while start < len(lag_arr):
-            end = start + 1
-            while end < len(lag_arr) and abs(lag_arr[end] - lag_arr[start]) <= tol:
-                end += 1
-            if end - start >= min_run:
-                stable_mask[start:end] = True
-            start = end
-        return float(stable_mask.mean())
+        window_length = min(max(1, self.params.stability_window_size), len(lag_arr))
+        min_stable = min(max(1, self.params.min_stable_windows), window_length)
+        tol = float(self.params.lag_tolerance)
+        window_number = len(lag_arr) - window_length + 1
+        stable = np.zeros(window_number, dtype=float)
+
+        comb_indices = list(combinations(range(window_length), min_stable))
+        for start in range(window_number):
+            clip = lag_arr[start : start + window_length]
+            if np.isnan(clip).all():
+                continue
+            for idx in comb_indices:
+                sample = clip[list(idx)]
+                if np.isnan(sample).any():
+                    continue
+                if float(np.max(sample) - np.min(sample)) <= tol:
+                    stable[start] = 1.0
+                    break
+
+        delay = window_length // 2
+        pad_end = len(lag_arr) - len(stable) - delay
+        start_pad = np.full(delay, stable[0], dtype=float)
+        end_pad = np.full(max(0, pad_end), stable[-1], dtype=float)
+        return np.concatenate((start_pad, stable, end_pad))
 
 
 class PhaseSyncAnalyzer:
