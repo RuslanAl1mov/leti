@@ -21,6 +21,49 @@ class FlockVisualizer:
         """
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
+        self._configure_matplotlib_style()
+
+    @staticmethod
+    def _configure_matplotlib_style() -> None:
+        # Global defaults: bigger, bolder text everywhere by default.
+        plt.rcParams.update(
+            {
+                "font.size": 12,
+                "font.weight": "bold",
+                "axes.titlesize": 14,
+                "axes.titleweight": "bold",
+                "axes.labelsize": 13,
+                "axes.labelweight": "bold",
+                "xtick.labelsize": 12,
+                "ytick.labelsize": 12,
+                "legend.fontsize": 11,
+            }
+        )
+
+    @staticmethod
+    def _bold_ticks(ax: plt.Axes, size: Optional[int] = None) -> None:
+        for tick in list(ax.get_xticklabels()) + list(ax.get_yticklabels()):
+            tick.set_fontweight("bold")
+            if size is not None:
+                tick.set_fontsize(size)
+
+    @classmethod
+    def _apply_axis_style(
+        cls,
+        ax: plt.Axes,
+        *,
+        tick_size: int = 12,
+        title_size: int = 14,
+        label_size: int = 13,
+    ) -> None:
+        cls._bold_ticks(ax, size=tick_size)
+        title = ax.title
+        title.set_fontweight("bold")
+        title.set_fontsize(title_size)
+        ax.xaxis.label.set_fontweight("bold")
+        ax.yaxis.label.set_fontweight("bold")
+        ax.xaxis.label.set_fontsize(label_size)
+        ax.yaxis.label.set_fontsize(label_size)
 
     @staticmethod
     def _flight_type_label(flock: FlockData) -> str:
@@ -52,8 +95,11 @@ class FlockVisualizer:
         ax.set_ylabel("Y (м)")
         ax.axis("equal")
         ax.grid(alpha=0.3)
-        ax.legend(ncol=2, fontsize=8, frameon=False)
+        leg = ax.legend(ncol=2, frameon=False)
+        for txt in leg.get_texts():
+            txt.set_fontweight("bold")
         out = self.output_dir / f"{flock.flock_id}_trajectory.png"
+        self._apply_axis_style(ax)
         fig.tight_layout()
         fig.savefig(out, dpi=180)
         plt.close(fig)
@@ -96,7 +142,10 @@ class FlockVisualizer:
         axes[1].set_xlabel("Время (с)")
         for ax in axes:
             ax.grid(alpha=0.3)
-            ax.legend(ncol=3, fontsize=8, frameon=False)
+            leg = ax.legend(ncol=3, frameon=False)
+            for txt in leg.get_texts():
+                txt.set_fontweight("bold")
+            self._apply_axis_style(ax)
         out = self.output_dir / f"{flock.flock_id}_coordinates.png"
         fig.tight_layout()
         fig.savefig(out, dpi=180)
@@ -140,8 +189,21 @@ class FlockVisualizer:
             for j in range(len(birds)):
                 value = matrix.values[i, j]
                 if not np.isnan(value):
-                    ax.text(j, i, f"{value:.2f}", ha="center", va="center", fontsize=7)
-        fig.colorbar(im, ax=ax, shrink=0.85, label="Значение TDS")
+                    ax.text(
+                        j,
+                        i,
+                        f"{value:.2f}",
+                        ha="center",
+                        va="center",
+                        fontsize=11,
+                        fontweight="bold",
+                    )
+        cbar = fig.colorbar(im, ax=ax, shrink=0.85, label="Значение TDS")
+        cbar.ax.tick_params(labelsize=12)
+        for tick in cbar.ax.get_yticklabels():
+            tick.set_fontweight("bold")
+        cbar.set_label("Значение TDS", fontweight="bold", fontsize=13)
+        self._apply_axis_style(ax)
         out = self.output_dir / f"{flock_id}_tds_{mode}_w{window_size}.png"
         fig.tight_layout()
         fig.savefig(out, dpi=180)
@@ -166,24 +228,40 @@ class FlockVisualizer:
             matrix.loc[row["bird1"], row["bird2"]] = row["phase_sync"]
             matrix.loc[row["bird2"], row["bird1"]] = row["phase_sync"]
 
-        fig, ax = plt.subplots(figsize=(7, 6))
+        fig, ax = plt.subplots(figsize=(7.5, 6.4))
         im = ax.imshow(matrix.values, vmin=0, vmax=1)
         ax.set_xticks(np.arange(len(birds)))
         ax.set_yticks(np.arange(len(birds)))
         ax.set_xticklabels(birds)
         ax.set_yticklabels(birds)
         ax.set_title(
-            f"Тепловая карта коэффициента фазовой синхронизации: {flock_id}, режим={mode}, окно={window_size}"
+            "Коэффициент фазовой синхронизации: стая, режим, окно\n"
+            f"{flock_id}, {mode}, {window_size}",
+            fontsize=12,
+            pad=12,
         )
         for i in range(len(birds)):
             for j in range(len(birds)):
                 value = matrix.values[i, j]
                 if not np.isnan(value):
-                    ax.text(j, i, f"{value:.2f}", ha="center", va="center", fontsize=7)
-        fig.colorbar(im, ax=ax, shrink=0.85, label="Коэффициент фазовой синхронизации")
+                    ax.text(
+                        j,
+                        i,
+                        f"{value:.2f}",
+                        ha="center",
+                        va="center",
+                        fontsize=11,
+                        fontweight="bold",
+                    )
+        cbar = fig.colorbar(im, ax=ax, shrink=0.85, label="Коэффициент фазовой синхронизации")
+        cbar.ax.tick_params(labelsize=12)
+        for tick in cbar.ax.get_yticklabels():
+            tick.set_fontweight("bold")
+        cbar.set_label("Коэффициент фазовой синхронизации", fontweight="bold", fontsize=13)
+        self._apply_axis_style(ax, title_size=12)
         out = self.output_dir / f"{flock_id}_phase_{mode}_w{window_size}.png"
-        fig.tight_layout()
-        fig.savefig(out, dpi=180)
+        fig.tight_layout(rect=(0, 0, 1, 0.92))
+        fig.savefig(out, dpi=180, bbox_inches="tight", pad_inches=0.12)
         plt.close(fig)
         return out
 
@@ -220,7 +298,10 @@ class FlockVisualizer:
         ax.set_ylabel("Средний TDS стаи")
         ax.set_title(f"Сравнение групп по размеру окна ({mode})")
         ax.grid(axis="y", alpha=0.3)
-        ax.legend(frameon=False)
+        leg = ax.legend(frameon=False)
+        for txt in leg.get_texts():
+            txt.set_fontweight("bold")
+        self._apply_axis_style(ax)
         out = self.output_dir / f"group_comparison_{mode}.png"
         fig.tight_layout()
         fig.savefig(out, dpi=180)
@@ -228,10 +309,10 @@ class FlockVisualizer:
         return out
 
     def plot_lag_trace(self, lag_df: pd.DataFrame, flock_id: str, bird_i: str, bird_j: str, mode: str, window_size: int) -> Optional[Path]:
-        """Строит изменение лучшего лага и корреляции по окнам для пары птиц.
+        """Строит изменение задержки и корреляции по окнам для пары птиц.
 
         Args:
-            lag_df: Таблица с результатами оценки лагов по временным окнам.
+            lag_df: Таблица с результатами оценки задержек по временным окнам.
             flock_id: Идентификатор стаи.
             bird_i: Идентификатор первой птицы в паре.
             bird_j: Идентификатор второй птицы в паре.
@@ -254,12 +335,16 @@ class FlockVisualizer:
         fig, ax1 = plt.subplots(figsize=(10, 4.5))
         ax1.plot(subset["window_index"], subset["best_lag"], marker="o", linewidth=1)
         ax1.set_xlabel("Индекс окна")
-        ax1.set_ylabel("Лучший лаг (отсчеты)")
-        ax1.set_title(f"Стабильность лага: {flock_id} {bird_i}-{bird_j}, режим={mode}, окно={window_size}")
+        ax1.set_ylabel("Задержка")
+        ax1.set_title(
+            f"Стабильность задержки: {flock_id} {bird_i}-{bird_j}, режим={mode}, окно={window_size}"
+        )
         ax1.grid(alpha=0.3)
         ax2 = ax1.twinx()
         ax2.plot(subset["window_index"], subset["best_corr"], linestyle="--", alpha=0.7)
-        ax2.set_ylabel("Лучшая корреляция")
+        ax2.set_ylabel("Корреляция")
+        self._apply_axis_style(ax1)
+        self._apply_axis_style(ax2)
         out = self.output_dir / f"{flock_id}_{bird_i}_{bird_j}_{mode}_w{window_size}_lag_trace.png"
         fig.tight_layout()
         fig.savefig(out, dpi=180)
@@ -295,6 +380,7 @@ class FlockVisualizer:
             f"Коэффициент фазовой синхронизации: {flock_id} {bird_i}-{bird_j}, режим={mode}, окно={window_size}"
         )
         ax.grid(alpha=0.3)
+        self._apply_axis_style(ax)
         out = self.output_dir / f"{flock_id}_{bird_i}_{bird_j}_{mode}_w{window_size}_phase_trace.png"
         fig.tight_layout()
         fig.savefig(out, dpi=180)
@@ -333,6 +419,7 @@ class FlockVisualizer:
             f"Боксплот TDS по птицам: {flock_id}, режим={mode}, окно={window_size}"
         )
         ax.grid(axis="y", alpha=0.3)
+        self._apply_axis_style(ax)
 
         out = self.output_dir / f"{flock_id}_tds_{mode}_w{window_size}_boxplot.png"
         fig.tight_layout()
@@ -374,6 +461,7 @@ class FlockVisualizer:
             f"Боксплот фазовой синхронизации по птицам: {flock_id}, режим={mode}, окно={window_size}"
         )
         ax.grid(axis="y", alpha=0.3)
+        self._apply_axis_style(ax)
 
         out = self.output_dir / f"{flock_id}_phase_{mode}_w{window_size}_boxplot.png"
         fig.tight_layout()
@@ -384,7 +472,7 @@ class FlockVisualizer:
     def plot_lag_std_boxplot(
         self, lag_df: pd.DataFrame, flock_id: str, mode: str, window_size: int
     ) -> Optional[Path]:
-        """Строит boxplot СКО лагов по птицам."""
+        """Строит boxplot СКО задержек по птицам."""
         subset = lag_df[
             (lag_df["id"] == flock_id)
             & (lag_df["coord"] == mode)
@@ -416,12 +504,13 @@ class FlockVisualizer:
         )
         ax.set_xticks(np.arange(1, len(labels) + 1))
         ax.set_xticklabels(labels)
-        ax.set_ylabel("СКО лучшего лага")
+        ax.set_ylabel("СКО задержки")
         ax.set_xlabel("Птица")
         ax.set_title(
-            f"Боксплот СКО лагов по птицам: {flock_id}, режим={mode}, окно={window_size}"
+            f"Боксплот СКО задержек по птицам: {flock_id}, режим={mode}, окно={window_size}"
         )
         ax.grid(axis="y", alpha=0.3)
+        self._apply_axis_style(ax)
 
         out = self.output_dir / f"{flock_id}_lag_std_{mode}_w{window_size}_boxplot.png"
         fig.tight_layout()
@@ -437,10 +526,10 @@ class FlockVisualizer:
         window_size: int,
         bins: int = 20,
     ) -> Optional[Path]:
-        """Строит гистограмму СКО лагов по всем парам птиц для выбранной стаи.
+        """Строит гистограмму СКО задержек по всем парам птиц для выбранной стаи.
 
         Args:
-            lag_df: Таблица с результатами оценки лагов по временным окнам.
+            lag_df: Таблица с результатами оценки задержек по временным окнам.
             flock_id: Идентификатор стаи.
             mode: Ось или режим анализа.
             window_size: Размер окна, для которого строится гистограмма.
@@ -471,13 +560,16 @@ class FlockVisualizer:
         ax.hist(values, bins=bins, color="#4C78A8", edgecolor="white", alpha=0.9)
         ax.axvline(np.median(values), color="#F58518", linestyle="--", linewidth=1.5, label=f"Медиана = {np.median(values):.2f}")
         ax.axvline(np.mean(values), color="#54A24B", linestyle="-.", linewidth=1.5, label=f"Среднее = {np.mean(values):.2f}")
-        ax.set_xlabel("СКО лучшего лага по окнам")
+        ax.set_xlabel("СКО задержки по окнам")
         ax.set_ylabel("Число пар")
         ax.set_title(
-            f"Гистограмма СКО лагов: {flock_id}, режим={mode}, окно={window_size}, карманы={bins}"
+            f"Гистограмма СКО задержек: {flock_id}, режим={mode}, окно={window_size}, карманы={bins}"
         )
         ax.grid(axis="y", alpha=0.3)
-        ax.legend(frameon=False)
+        leg = ax.legend(frameon=False)
+        for txt in leg.get_texts():
+            txt.set_fontweight("bold")
+        self._apply_axis_style(ax)
 
         out = self.output_dir / f"{flock_id}_{mode}_w{window_size}_lag_std_hist_b{bins}.png"
         fig.tight_layout()
